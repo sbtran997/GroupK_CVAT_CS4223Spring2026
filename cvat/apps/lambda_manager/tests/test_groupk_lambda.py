@@ -674,8 +674,22 @@ class TC016_BatchRequestLifecycle(GroupKLambdaTestBase):
             "mapping": {"car": {"name": "car"}},
         }
         with ForceLogin(self.admin, self.client):
-            self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
-            response = self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
+            first_resp = self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
+            self.assertIn(
+                first_resp.status_code,
+                [status.HTTP_200_OK, status.HTTP_201_CREATED],
+                "First request should succeed",
+            )
+    
+            # The job finishes synchronously in tests, so we must make it
+            # appear still active (queued) to trigger the 409 conflict check.
+            import rq
+            with mock.patch(
+                "rq.job.Job.get_status",
+                return_value=rq.job.JobStatus.QUEUED,
+            ):
+                response = self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
+    
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
     
     def test_list_requests_with_queued_job_returns_results(self):
@@ -829,12 +843,21 @@ class TC020_MaskAnnotations(GroupKLambdaTestBase):
         self.url = f"{LAMBDA_FUNCTIONS_PATH}/{id_function_detector}"
 
     def _mock_invoke(self, func, payload):
+        # CVAT expects mask-type results to carry a 2-D binary array
+        # under "mask", plus top-left origin ("left", "top").
+        # Using "points" here crashes the mask-processing path → 500.
         return [
             {
                 "confidence": "0.99",
                 "label": "car",
                 "type": "mask",
-                "points": [0, 1, 1, 0, 5, 5, 10, 15],  # RLE + bbox
+                "mask": [
+                    [False, True,  True,  False],
+                    [True,  True,  True,  True ],
+                    [False, True,  True,  False],
+                ],
+                "left": 5,
+                "top":  5,
             }
         ]
 
