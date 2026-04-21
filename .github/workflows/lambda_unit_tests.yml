@@ -26,12 +26,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ---> NEW OPA CONTAINER STEP GOES HERE <---
+      # ---> UPDATED OPA CONTAINER STEP <---
       - name: Start Open Policy Agent (OPA)
         run: |
-          docker run -d --network host --name opa openpolicyagent/opa:latest \
-            run --server cvat/apps/iam/rules
-      # ------------------------------------------
+          docker run -d --network host --name opa \
+            -v ${{ github.workspace }}/cvat/apps/iam/rules:/rules \
+            openpolicyagent/opa:latest \
+            run --server /rules
+      # ------------------------------------
 
       - name: Set up Python
         uses: actions/setup-python@v5
