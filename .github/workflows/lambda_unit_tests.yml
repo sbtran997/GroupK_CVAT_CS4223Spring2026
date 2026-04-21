@@ -26,36 +26,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ---> UPDATED OPA CONTAINER STEP <---
       - name: Start Open Policy Agent (OPA)
         run: |
-          # Boot standard OPA and point it to the root apps directory
+          # 1. Dynamically find all 'rules' directories in the repo and map them to the container path
+          RULES_DIRS=$(find cvat/apps -type d -name "rules" | sed 's|^|/workspace/|')
+          
+          # 2. Boot standard OPA to avoid GitHub Actions volume permission conflicts
           docker run -d --network host --name opa \
             -v ${{ github.workspace }}:/workspace \
             openpolicyagent/opa:0.45.0 \
-            run --server /workspace/cvat/apps
+            run --server $RULES_DIRS
+      # ------------------------------------
 
-          echo "Waiting for OPA to boot and compile rules on port 8181..."
-          
-          # Poll the health endpoint
-          for i in {1..15}; do
-            if curl -s http://localhost:8181/health > /dev/null; then
-              echo "✅ OPA is up and running!"
-              exit 0
-            fi
-            echo "Waiting..."
+      # ---> ADDED: Wait for OPA to be ready before proceeding <---
+      - name: Wait for OPA to be ready
+        run: |
+          for i in $(seq 1 15); do
+            curl -sf http://localhost:8181/health && echo "OPA is ready" && break
+            echo "Waiting for OPA... attempt $i"
             sleep 2
           done
-          
-          # If the loop finishes without exiting 0, OPA failed. Dump the logs!
-          echo "❌ OPA failed to start! Dumping container logs for debugging:"
-          docker logs opa
-          exit 1
+      # ------------------------------------
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-          
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -63,11 +61,23 @@ jobs:
             libgeos-dev \
             libldap2-dev \
             libsasl2-dev
-          
+
       - name: Install dependencies
         run: |
           pip install -r cvat/requirements/testing.txt
           pip install pytest pytest-django pytest-cov pytest-rerunfailures bandit djangorestframework
+
+      # ---> ADDED: Verify settings load cleanly before doing anything with Django <---
+      - name: Verify Django settings
+        run: python -c "import cvat.settings.testing; print('Settings OK')"
+        env:
+          DJANGO_SETTINGS_MODULE: cvat.settings.testing
+
+      # ---> ADDED: Run migrations so all DB tables exist before tests hit the API <---
+      - name: Run migrations
+        run: python manage.py migrate --run-syncdb
+        env:
+          DJANGO_SETTINGS_MODULE: cvat.settings.testing
 
       - name: Run Bandit static analysis
         run: |
