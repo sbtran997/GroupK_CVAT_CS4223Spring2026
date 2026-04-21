@@ -26,31 +26,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ---> UPDATED OPA CONTAINER STEP <---
+      # ---> FIXED: Use array expansion to correctly pass multiple rules dirs,
+      #             and bumped OPA to 0.66.0 for rego.v1 support <---
       - name: Start Open Policy Agent (OPA)
         run: |
-          # Build args array — one -v mount arg and one path arg per rules dir
           RULES_ARGS=()
           while IFS= read -r dir; do
             RULES_ARGS+=("/workspace/${dir}")
           done < <(find cvat/apps -type d -name "rules")
-      
+
           docker run -d --network host --name opa \
             -v ${{ github.workspace }}:/workspace \
             openpolicyagent/opa:0.66.0 \
             run --server "${RULES_ARGS[@]}"
       # ------------------------------------
-
-      - name: Debug OPA startup
-        run: |
-          echo "=== OPA container status ==="
-          docker ps -a --filter name=opa
-      
-          echo "=== OPA container logs ==="
-          docker logs opa
-      
-          echo "=== Rules dirs found ==="
-          find cvat/apps -type d -name "rules"
 
       # ---> ADDED: Wait for OPA to be ready before proceeding <---
       - name: Wait for OPA to be ready
@@ -91,6 +80,16 @@ jobs:
         run: python manage.py migrate --run-syncdb
         env:
           DJANGO_SETTINGS_MODULE: cvat.settings.testing
+
+      # ---> ADDED: Start RQ worker so async image upload jobs are actually processed.
+      #             Without this, _create_task polls forever and every test times out. <---
+      - name: Start RQ Worker
+        run: |
+          python manage.py rqworker default cvat chunks export import webhooks &
+          sleep 3
+        env:
+          DJANGO_SETTINGS_MODULE: cvat.settings.testing
+      # ------------------------------------
 
       - name: Run Bandit static analysis
         run: |
