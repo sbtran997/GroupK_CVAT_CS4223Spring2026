@@ -136,7 +136,11 @@ class GroupKLambdaTestBase(ApiTestBase):
 
         with ForceLogin(owner, self.client):
             response = self.client.post("/api/tasks", data=task_spec, format="json")
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertEqual(
+                response.status_code, 
+                status.HTTP_201_CREATED,
+                f"Task creation failed with {response.status_code}. Details: {response.content.decode('utf-8', errors='replace')}"
+            )
             tid = response.data["id"]
 
             images = {"client_files[%d]" % i: generate_image_file("img%d.jpg" % i)
