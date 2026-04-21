@@ -14,6 +14,7 @@ from cvat.apps.engine.tests.utils import (
     ForceLogin,
     generate_image_file,
 )
+import requests as requests_lib
 
 LAMBDA_ROOT_PATH = "/api/lambda"
 LAMBDA_FUNCTIONS_PATH = f"{LAMBDA_ROOT_PATH}/functions"
@@ -664,6 +665,33 @@ class TC016_BatchRequestLifecycle(GroupKLambdaTestBase):
             response = self.client.get(f"{LAMBDA_REQUESTS_PATH}/nonexistent-id")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_duplicate_batch_request_returns_409(self):
+        """Second request on same task while first is still queued must return 409."""
+        payload = {
+            "function": id_function_detector,
+            "task": self.tid,
+            "cleanup": False,
+            "mapping": {"car": {"name": "car"}},
+        }
+        with ForceLogin(self.admin, self.client):
+            self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
+            response = self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+    
+    def test_list_requests_with_queued_job_returns_results(self):
+        """List requests after enqueuing a job — exercises the permission filter path."""
+        payload = {
+            "function": id_function_detector,
+            "task": self.tid,
+            "cleanup": False,
+            "mapping": {"car": {"name": "car"}},
+        }
+        with ForceLogin(self.admin, self.client):
+            self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
+            response = self.client.get(LAMBDA_REQUESTS_PATH)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreater(len(response.json()), 0)
+
 class TC017_InteractorFunction(GroupKLambdaTestBase):
     @classmethod
     def setUpTestData(cls):
@@ -707,6 +735,135 @@ class TC017_InteractorFunction(GroupKLambdaTestBase):
         with ForceLogin(self.admin, self.client):
             response = self.client.post(self.url, data=payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+class TC018_ErrorHandling(GroupKLambdaTestBase):
+    @classmethod
+    def setUpTestData(cls):
+        cls._create_db_users()
+
+    def test_nuclio_connection_error_returns_503(self):
+        """ConnectionError from Nuclio must surface as 503."""
+        with mock.patch(
+            "cvat.apps.lambda_manager.views.LambdaGateway._http",
+            side_effect=requests_lib.ConnectionError("connection refused"),
+        ):
+            with ForceLogin(self.admin, self.client):
+                response = self.client.get(LAMBDA_FUNCTIONS_PATH)
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    def test_nuclio_timeout_returns_504(self):
+        """Timeout from Nuclio must surface as 504."""
+        with mock.patch(
+            "cvat.apps.lambda_manager.views.LambdaGateway._http",
+            side_effect=requests_lib.Timeout("timed out"),
+        ):
+            with ForceLogin(self.admin, self.client):
+                response = self.client.get(LAMBDA_FUNCTIONS_PATH)
+        self.assertEqual(response.status_code, status.HTTP_504_GATEWAY_TIMEOUT)
+
+    def test_nuclio_request_exception_returns_500(self):
+        """Generic RequestException from Nuclio must surface as 500."""
+        with mock.patch(
+            "cvat.apps.lambda_manager.views.LambdaGateway._http",
+            side_effect=requests_lib.RequestException("generic error"),
+        ):
+            with ForceLogin(self.admin, self.client):
+                response = self.client.get(LAMBDA_FUNCTIONS_PATH)
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def test_call_without_task_or_job_returns_400(self):
+        """Omitting both 'task' and 'job' from the call payload must return 400."""
+        url = f"{LAMBDA_FUNCTIONS_PATH}/{id_function_detector}"
+        payload = {"frame": 0}  # task and job both missing
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_call_with_nonexistent_task_returns_400(self):
+        """A task id that doesn't exist must return 400."""
+        url = f"{LAMBDA_FUNCTIONS_PATH}/{id_function_detector}"
+        payload = {"task": 99999, "frame": 0}
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+class TC019_TagAnnotations(GroupKLambdaTestBase):
+    @classmethod
+    def setUpTestData(cls):
+        cls._create_db_users()
+
+    def setUp(self):
+        super().setUp()
+        self.tid = self._create_task(labels=[{"name": "car"}], owner=self.admin)
+        self.url = f"{LAMBDA_FUNCTIONS_PATH}/{id_function_detector}"
+
+    def _mock_invoke(self, func, payload):
+        # Override to return a tag-type annotation
+        return [
+            {
+                "confidence": "0.99",
+                "label": "car",
+                "type": "tag",
+            }
+        ]
+
+    def test_tag_annotation_is_returned_in_tags_list(self):
+        """A tag-type result from the model must appear in the 'tags' key, not 'shapes'."""
+        payload = {"task": self.tid, "frame": 0, "mapping": {"car": {"name": "car"}}}
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(self.url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn("tags", data)
+        self.assertGreater(len(data["tags"]), 0)
+        self.assertEqual(len(data.get("shapes", [])), 0)
+
+class TC020_MaskAnnotations(GroupKLambdaTestBase):
+    @classmethod
+    def setUpTestData(cls):
+        cls._create_db_users()
+
+    def setUp(self):
+        super().setUp()
+        self.tid = self._create_task(labels=[{"name": "car"}], owner=self.admin)
+        self.url = f"{LAMBDA_FUNCTIONS_PATH}/{id_function_detector}"
+
+    def _mock_invoke(self, func, payload):
+        return [
+            {
+                "confidence": "0.99",
+                "label": "car",
+                "type": "mask",
+                "points": [0, 1, 1, 0, 5, 5, 10, 15],  # RLE + bbox
+            }
+        ]
+
+    def test_mask_annotation_without_conversion_returns_shape(self):
+        """Mask type without conv_mask_to_poly must return a mask shape."""
+        payload = {
+            "task": self.tid,
+            "frame": 0,
+            "mapping": {"car": {"name": "car"}},
+            "conv_mask_to_poly": False,
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(self.url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_mask_annotation_with_conversion_returns_polygon(self):
+        """Mask type with conv_mask_to_poly=True must produce a polygon shape."""
+        payload = {
+            "task": self.tid,
+            "frame": 0,
+            "mapping": {"car": {"name": "car"}},
+            "conv_mask_to_poly": True,
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(self.url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        shapes = response.json().get("shapes", [])
+        polygon_shapes = [s for s in shapes if s.get("type") == "polygon"]
+        self.assertGreater(len(polygon_shapes), 0)
 
 # TC-DI-01 - Nuclio crash mid-invocation must not corrupt existing annotations
 class TC_DataIntegrity_RollbackOnFailure(GroupKLambdaTestBase):
