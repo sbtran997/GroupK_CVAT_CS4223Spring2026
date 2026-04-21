@@ -526,13 +526,15 @@ class TC_DataIntegrity_RollbackOnFailure(GroupKLambdaTestBase):
         with ForceLogin(self.admin, self.client):
             # FIXED: use /api/labels?task_id= instead of task detail
             labels_response = self.client.get(f"/api/labels?task_id={self.tid}").json()
+            self.assertGreater(len(labels_response["results"]), 0, f"No labels found: {labels_response}")
             label_id = labels_response["results"][0]["id"]
             annotation_payload["shapes"][0]["label_id"] = label_id
-            self.client.patch(
+            patch_response = self.client.patch(
                 f"/api/tasks/{self.tid}/annotations",
                 data=annotation_payload,
                 format="json",
             )
+            self.assertEqual(patch_response.status_code, 200, patch_response.json())
             before = self.client.get(f"/api/tasks/{self.tid}/annotations").json()
             self.assertEqual(len(before["shapes"]), 1)
     
