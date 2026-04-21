@@ -7,6 +7,8 @@ import os
 from unittest import mock
 
 from django.contrib.auth.models import Group, User
+from django.conf import settings
+from django.test.utils import override_settings
 from rest_framework import status
 
 from cvat.apps.engine.tests.utils import (
@@ -31,7 +33,13 @@ with open(path) as f:
 path = os.path.join(os.path.dirname(__file__), "assets", "functions.json")
 with open(path) as f:
     functions = json.load(f)
-
+    
+@override_settings(
+    RQ_QUEUES={
+        name: {**config, 'ASYNC': False}
+        for name, config in settings.RQ_QUEUES.items()
+    }
+)
 # Shared base - mirrors _LambdaTestCaseBase in test_lambda.py
 class GroupKLambdaTestBase(ApiTestBase):
     """
