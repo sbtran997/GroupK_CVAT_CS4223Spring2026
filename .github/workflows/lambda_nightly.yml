@@ -21,10 +21,15 @@ jobs:
           # Wait for services to be healthy before running tests
           sleep 30
 
+      - name: Install test dependencies inside container
+        run: |
+          docker compose exec -T cvat_server \
+            /opt/venv/bin/pip install pytest pytest-django pytest-cov pytest-rerunfailures
+
       - name: Run full integration suite
         run: |
           docker compose exec -T cvat_server \
-            python -m pytest \
+            /opt/venv/bin/python -m pytest \
               cvat/apps/lambda_manager/tests/ \
               -v --tb=long -m "integration or not unit"
         env:
