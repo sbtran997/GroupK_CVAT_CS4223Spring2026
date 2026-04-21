@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r cvat/requirements/testing.txt
-          pip install pytest pytest-django pytest-cov pytest-rerunfailures bandit
+          pip install pytest pytest-django pytest-cov pytest-rerunfailures bandit djangorestframework
 
       - name: Run Bandit static analysis
         run: |
