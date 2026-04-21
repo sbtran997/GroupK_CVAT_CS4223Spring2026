@@ -1,0 +1,50 @@
+name: Lambda Manager — Unit Tests (Per PR)
+
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-22.04
+
+    services:
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          pip install -r cvat/requirements/testing.txt
+          pip install pytest pytest-django pytest-cov pytest-rerunfailures bandit
+
+      - name: Run Bandit static analysis
+        run: |
+          bandit -r cvat/apps/lambda_manager/views.py \
+                    cvat/apps/lambda_manager/serializers.py \
+                 -ll --exit-zero
+        # --exit-zero means Bandit warnings don't block the build,
+        # but output is visible in the PR check log.
+        # Remove --exit-zero once the team is ready to enforce it as a hard gate.
+
+      - name: Run unit tests with coverage
+        run: |
+          pytest cvat/apps/lambda_manager/tests/test_groupk_lambda.py \
+                 cvat/apps/lambda_manager/tests/test_lambda.py \
+                 -v --tb=short
+        env:
+          DJANGO_SETTINGS_MODULE: cvat.settings.testing
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
