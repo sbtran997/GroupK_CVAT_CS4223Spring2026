@@ -29,14 +29,16 @@ jobs:
       # ---> UPDATED OPA CONTAINER STEP <---
       - name: Start Open Policy Agent (OPA)
         run: |
-          # 1. Dynamically find all 'rules' directories in the repo and map them to the container path
-          RULES_DIRS=$(find cvat/apps -type d -name "rules" | sed 's|^|/workspace/|')
-          
-          # 2. Boot standard OPA to avoid GitHub Actions volume permission conflicts
+          # Build args array — one -v mount arg and one path arg per rules dir
+          RULES_ARGS=()
+          while IFS= read -r dir; do
+            RULES_ARGS+=("/workspace/${dir}")
+          done < <(find cvat/apps -type d -name "rules")
+      
           docker run -d --network host --name opa \
             -v ${{ github.workspace }}:/workspace \
             openpolicyagent/opa:0.45.0 \
-            run --server $RULES_DIRS
+            run --server "${RULES_ARGS[@]}"
       # ------------------------------------
 
       # ---> ADDED: Wait for OPA to be ready before proceeding <---
