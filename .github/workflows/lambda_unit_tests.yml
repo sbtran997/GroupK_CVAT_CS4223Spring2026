@@ -26,6 +26,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ---> NEW OPA CONTAINER STEP GOES HERE <---
+      - name: Start Open Policy Agent (OPA)
+        run: |
+          docker run -d --network host --name opa openpolicyagent/opa:latest \
+            run --server cvat/apps/iam/rules
+      # ------------------------------------------
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -56,8 +63,6 @@ jobs:
                  -v --tb=short
         env:
           DJANGO_SETTINGS_MODULE: cvat.settings.testing
-          # If your testing settings require a specific Redis URL, you can define it here. 
-          # Otherwise, localhost:6379 is the default for Django/RQ and will map perfectly to the service above.
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
