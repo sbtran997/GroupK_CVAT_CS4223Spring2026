@@ -81,20 +81,6 @@ jobs:
         env:
           DJANGO_SETTINGS_MODULE: cvat.settings.testing
 
-      
-    
-      - name: Start RQ Worker
-        run: |
-          python manage.py rqworker import export annotation webhooks notifications quality_reports cleaning chunks consensus &
-          sleep 3
-        env:
-          DJANGO_SETTINGS_MODULE: cvat.settings.testing
-      
-      - name: Run Bandit static analysis
-        run: |
-          bandit -r cvat/apps/lambda_manager/views.py \
-                    cvat/apps/lambda_manager/serializers.py \
-                 -ll --exit-zero
 
       - name: Run unit tests with coverage
         run: |
