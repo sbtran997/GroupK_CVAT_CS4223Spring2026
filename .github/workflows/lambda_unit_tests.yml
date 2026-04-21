@@ -26,18 +26,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-     # ---> UPDATED OPA CONTAINER STEP <---
       - name: Start Open Policy Agent (OPA)
         run: |
-          # 1. Dynamically find all 'rules' directories in the repo and map them to the container path
           RULES_DIRS=$(find cvat/apps -type d -name "rules" | sed 's|^|/workspace/|')
           
-          # 2. Boot standard OPA to avoid GitHub Actions volume permission conflicts
+          # Boot standard OPA
           docker run -d --network host --name opa \
             -v ${{ github.workspace }}:/workspace \
             openpolicyagent/opa:0.45.0 \
             run --server $RULES_DIRS
-      # ------------------------------------
+
+          echo "Waiting for OPA to boot and compile rules on port 8181..."
+          # Ping OPA's health endpoint until it responds with a 200 OK
+          for i in {1..15}; do
+            if curl -s http://localhost:8181/health > /dev/null; then
+              echo "✅ OPA is up and running!"
+              break
+            fi
+            echo "Waiting..."
+            sleep 2
+          done
 
       - name: Set up Python
         uses: actions/setup-python@v5
