@@ -81,6 +81,11 @@ jobs:
         env:
           DJANGO_SETTINGS_MODULE: cvat.settings.testing
 
+      - name: Show RQ queue names
+        run: python -c "from django.conf import settings; print(list(settings.RQ_QUEUES.keys()))"
+        env:
+          DJANGO_SETTINGS_MODULE: cvat.settings.testing
+    
       - name: Start RQ Worker
         run: |
           python manage.py rqworker &
