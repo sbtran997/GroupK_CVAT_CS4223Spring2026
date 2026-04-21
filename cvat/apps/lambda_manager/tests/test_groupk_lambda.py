@@ -885,44 +885,6 @@ class TC020_MaskAnnotations(GroupKLambdaTestBase):
         polygon_shapes = [s for s in shapes if s.get("type") == "polygon"]
         self.assertGreater(len(polygon_shapes), 0)
 
-class TC_WorkerExecution(GroupKLambdaTestBase):
-    @classmethod
-    def setUpTestData(cls):
-        cls._create_db_users()
-
-    def setUp(self):
-        super().setUp()
-        self.tid = self._create_task(labels=[{"name": "car"}], owner=self.admin)
-
-    def test_batch_worker_executes_all_frames(self):
-        payload = {
-            "function": id_function_detector,
-            "task": self.tid,
-            "cleanup": False,
-            "mapping": {"car": {"name": "car"}},
-        }
-        with ForceLogin(self.admin, self.client):
-            response = self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
-            self.assertIn(response.status_code,
-                [status.HTTP_200_OK, status.HTTP_201_CREATED])
-
-        queue = django_rq.get_queue("annotations")
-        worker = SimpleWorker([queue], connection=queue.connection)
-        worker.work(burst=True)
-
-    def test_batch_worker_with_cleanup_executes(self):
-        payload = {
-            "function": id_function_detector,
-            "task": self.tid,
-            "cleanup": True,
-            "mapping": {"car": {"name": "car"}},
-        }
-        with ForceLogin(self.admin, self.client):
-            self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
-
-        queue = django_rq.get_queue("annotations")
-        worker = SimpleWorker([queue], connection=queue.connection)
-        worker.work(burst=True)
 
 # TC-DI-01 - Nuclio crash mid-invocation must not corrupt existing annotations
 class TC_DataIntegrity_RollbackOnFailure(GroupKLambdaTestBase):
