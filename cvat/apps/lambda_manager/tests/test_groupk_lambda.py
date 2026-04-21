@@ -491,3 +491,77 @@ class TC014_CrossUserAnnotationDenied(GroupKLambdaTestBase):
         self.assertIn(response.status_code,
             [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND],
             "Cross-user batch request must be denied (403 or 404)")
+        
+# TC-DI-01 - Nuclio crash mid-invocation must not corrupt existing annotations
+class TC_DataIntegrity_RollbackOnFailure(GroupKLambdaTestBase):
+    """
+    7.2 Data Integrity: If the Nuclio model returns an error response,
+    the database transaction must roll back cleanly. Existing valid
+    annotations on the task must not be overwritten or deleted.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls._create_db_users()
+
+    def setUp(self):
+        super().setUp()
+        self.tid = self._create_task(labels=[{"name": "car"}], owner=self.admin)
+        self.url = f"{LAMBDA_FUNCTIONS_PATH}/{id_function_detector}"
+
+    def test_failed_invocation_does_not_overwrite_existing_annotations(self):
+        """
+        Simulate a Nuclio crash by patching invoke to raise an exception
+        mid-call. Existing annotations on the task must remain intact.
+        """
+        # Step 1: create a known-good annotation on the task directly
+        annotation_payload = {
+            "shapes": [{
+                "type": "rectangle",
+                "frame": 0,
+                "points": [1.0, 1.0, 50.0, 50.0],
+                "label_id": None,  # filled in dynamically below
+                "group": 0,
+                "source": "manual",
+                "attributes": [],
+                "occluded": False,
+                "z_order": 0,
+            }]
+        }
+        with ForceLogin(self.admin, self.client):
+            # Get label_id for 'car' on this task
+            task_detail = self.client.get(f"/api/tasks/{self.tid}").json()
+            label_id = task_detail["labels"][0]["id"]
+            annotation_payload["shapes"][0]["label_id"] = label_id
+
+            self.client.patch(
+                f"/api/tasks/{self.tid}/annotations",
+                data=annotation_payload,
+                format="json",
+            )
+
+            # Verify annotation exists before the crash
+            before = self.client.get(f"/api/tasks/{self.tid}/annotations").json()
+            self.assertEqual(len(before["shapes"]), 1)
+
+        # Step 2: patch invoke to simulate a Nuclio crash
+        with mock.patch(
+            "cvat.apps.lambda_manager.views.LambdaGateway.invoke",
+            side_effect=Exception("Simulated Nuclio container crash"),
+        ):
+            with ForceLogin(self.admin, self.client):
+                payload = {
+                    "task": self.tid,
+                    "frame": 0,
+                    "mapping": {"car": {"name": "car"}},
+                }
+                response = self.client.post(self.url, data=payload, format="json")
+                # The call must fail (not 200)
+                self.assertNotEqual(response.status_code, 200)
+
+                # Step 3: verify original annotation is still intact
+                after = self.client.get(f"/api/tasks/{self.tid}/annotations").json()
+                self.assertEqual(
+                    len(after["shapes"]), 1,
+                    "Existing annotations must survive a failed Nuclio invocation"
+                )
