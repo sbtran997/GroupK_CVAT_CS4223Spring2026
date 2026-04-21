@@ -33,3 +33,12 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v
+        
+      - name: Run Locust performance test
+        run: |
+          pip install locust
+          locust -f cvat/apps/lambda_manager/tests/performance/locustfile.py \
+                 --host=http://localhost:8080 \
+                 --users 50 --spawn-rate 5 \
+                 --run-time 90s --headless \
+                 --html=locust_report.html
