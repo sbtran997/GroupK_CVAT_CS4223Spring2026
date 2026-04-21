@@ -203,6 +203,32 @@ class TC002_DetectorPayloadAndDeserialization(GroupKLambdaTestBase):
         shapes = response.json()["shapes"]
         for shape in shapes:
             self.assertIn("label_id", shape)
+    def test_auto_mapping_used_when_mapping_omitted(self):
+        """No mapping key triggers make_default_mapping — covers auto-mapping path."""
+        payload = {"task": self.tid, "frame": 0}
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(self.url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+    
+    def test_invalid_model_label_in_mapping_returns_400(self):
+        payload = {
+            "task": self.tid,
+            "frame": 0,
+            "mapping": {"nonexistent_model_label": {"name": "car"}},
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(self.url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    
+    def test_invalid_db_label_in_mapping_returns_400(self):
+        payload = {
+            "task": self.tid,
+            "frame": 0,
+            "mapping": {"car": {"name": "nonexistent_task_label"}},
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(self.url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 # TC-003 - Response correctly parsed into CVAT polygon annotation objects
 class TC003_DetectorPolygonParsing(GroupKLambdaTestBase):
@@ -395,6 +421,28 @@ class TC011_TrackerFrameAnnotations(GroupKLambdaTestBase):
         self.assertEqual(len(states), 1)
         self.assertIsInstance(states[0], str,
             "Tracker state must be a signed string, not a raw dict")
+        
+    def test_tracker_continuing_tracking_with_states_only(self):
+        """'states' without 'shapes' hits the continuing-tracking branch."""
+        payload = {
+            "task": self.tid,
+            "frame": 0,
+            "states": [],
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(self.url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+    
+    def test_tracker_tampered_state_returns_400(self):
+        """A tampered state string triggers BadSignature → 400."""
+        payload = {
+            "task": self.tid,
+            "frame": 0,
+            "states": ["this.is.not.a.valid.signed.state"],
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(self.url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 # TC-012 - Single-frame interactive call returns shapes without launching RQ
 class TC012_InteractiveFunctionNoRQJob(GroupKLambdaTestBase):
