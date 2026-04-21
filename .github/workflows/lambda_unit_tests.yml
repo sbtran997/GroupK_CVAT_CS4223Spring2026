@@ -37,7 +37,7 @@ jobs:
       
           docker run -d --network host --name opa \
             -v ${{ github.workspace }}:/workspace \
-            openpolicyagent/opa:0.45.0 \
+            openpolicyagent/opa:0.66.0 \
             run --server "${RULES_ARGS[@]}"
       # ------------------------------------
 
