@@ -3,6 +3,7 @@ name: Lambda Manager — Unit Tests (Per PR)
 on:
   pull_request:
     branches: [develop]
+  workflow_dispatch:
 
 jobs:
   unit-tests:
