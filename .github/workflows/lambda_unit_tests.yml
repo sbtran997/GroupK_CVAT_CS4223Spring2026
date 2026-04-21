@@ -13,8 +13,9 @@ jobs:
     services:
       redis:
         image: redis:alpine
-        # Map the GitHub Runner's port 6666 to the container's port 6379
+        # Map BOTH ports to the container's internal 6379 port
         ports:
+          - 6379:6379
           - 6666:6379
         options: >-
           --health-cmd "redis-cli ping"
