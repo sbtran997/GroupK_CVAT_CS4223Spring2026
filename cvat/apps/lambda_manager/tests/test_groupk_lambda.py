@@ -181,7 +181,7 @@ class TC002_DetectorPayloadAndDeserialization(GroupKLambdaTestBase):
         payload = {"task": self.tid, "frame": 0, "mapping": {"car": {"name": "car"}}}
         with ForceLogin(self.admin, self.client):
             response = self.client.post(self.url, data=payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertIn("shapes", response.json())
 
     def test_detector_rectangle_shape_has_correct_coordinates(self):
