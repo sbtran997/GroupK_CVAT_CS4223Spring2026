@@ -81,6 +81,13 @@ jobs:
         env:
           DJANGO_SETTINGS_MODULE: cvat.settings.testing
 
+      - name: Start RQ Worker
+        run: |
+          python manage.py rqworker &
+          sleep 3
+        env:
+          DJANGO_SETTINGS_MODULE: cvat.settings.testing
+      
       - name: Run Bandit static analysis
         run: |
           bandit -r cvat/apps/lambda_manager/views.py \
