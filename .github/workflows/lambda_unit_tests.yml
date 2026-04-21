@@ -29,10 +29,14 @@ jobs:
       # ---> UPDATED OPA CONTAINER STEP <---
       - name: Start Open Policy Agent (OPA)
         run: |
+          # 1. Dynamically find all 'rules' directories in the repo and map them to the container path
+          RULES_DIRS=$(find cvat/apps -type d -name "rules" | sed 's|^|/workspace/|')
+          
+          # 2. Boot OPA, mounting the entire workspace, and pass the specific rule directories
           docker run -d --network host --name opa \
-            -v ${{ github.workspace }}/cvat/apps/iam/rules:/rules \
-            openpolicyagent/opa:latest \
-            run --server /rules
+            -v ${{ github.workspace }}:/workspace \
+            openpolicyagent/opa:0.45.0-rootless \
+            run --server $RULES_DIRS
       # ------------------------------------
 
       - name: Set up Python
