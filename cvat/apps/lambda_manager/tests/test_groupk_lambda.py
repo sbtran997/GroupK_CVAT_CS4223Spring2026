@@ -832,6 +832,98 @@ class TC019_TagAnnotations(GroupKLambdaTestBase):
         self.assertGreater(len(data["tags"]), 0)
         self.assertEqual(len(data.get("shapes", [])), 0)
 
+class TC020_MaskAnnotations(GroupKLambdaTestBase):
+    @classmethod
+    def setUpTestData(cls):
+        cls._create_db_users()
+
+    def setUp(self):
+        super().setUp()
+        self.tid = self._create_task(labels=[{"name": "car"}], owner=self.admin)
+        self.url = f"{LAMBDA_FUNCTIONS_PATH}/{id_function_detector}"
+
+    def _mock_invoke(self, func, payload):
+        return [
+            {
+                "confidence": "0.99",
+                "label": "car",
+                "type": "mask",
+                # "mask" key: binary pixel values followed by [xtl, ytl, xbr, ybr]
+                # shape["points"] pulls from this; [-4:] extracts the bbox
+                "mask": [0, 1, 0, 1, 1, 0, 0, 10, 15],
+                #        ^--- pixel data ---^  ^- bbox -^
+                # [-4:] → xtl=0, ytl=0, xbr=10, ybr=15
+                # [:-4] → [0, 1, 0, 1, 1] fed to mask_to_rle
+
+                # "points" key: valid polygon coords used when conv_mask_to_poly=True
+                "points": [0, 0, 10, 0, 10, 10, 0, 10],
+            }
+        ]
+
+    def test_mask_annotation_without_conversion_returns_shape(self):
+        payload = {
+            "task": self.tid,
+            "frame": 0,
+            "mapping": {"car": {"name": "car"}},
+            "conv_mask_to_poly": False,
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(self.url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_mask_annotation_with_conversion_returns_polygon(self):
+        payload = {
+            "task": self.tid,
+            "frame": 0,
+            "mapping": {"car": {"name": "car"}},
+            "conv_mask_to_poly": True,
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(self.url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        shapes = response.json().get("shapes", [])
+        polygon_shapes = [s for s in shapes if s.get("type") == "polygon"]
+        self.assertGreater(len(polygon_shapes), 0)
+
+class TC_WorkerExecution(GroupKLambdaTestBase):
+    @classmethod
+    def setUpTestData(cls):
+        cls._create_db_users()
+
+    def setUp(self):
+        super().setUp()
+        self.tid = self._create_task(labels=[{"name": "car"}], owner=self.admin)
+
+    def test_batch_worker_executes_all_frames(self):
+        payload = {
+            "function": id_function_detector,
+            "task": self.tid,
+            "cleanup": False,
+            "mapping": {"car": {"name": "car"}},
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
+            self.assertIn(response.status_code,
+                [status.HTTP_200_OK, status.HTTP_201_CREATED])
+
+        queue = django_rq.get_queue("annotations")
+        worker = SimpleWorker([queue], connection=queue.connection)
+        worker.work(burst=True)
+
+    def test_batch_worker_with_cleanup_executes(self):
+        payload = {
+            "function": id_function_detector,
+            "task": self.tid,
+            "cleanup": True,
+            "mapping": {"car": {"name": "car"}},
+        }
+        with ForceLogin(self.admin, self.client):
+            self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
+
+        queue = django_rq.get_queue("annotations")
+        worker = SimpleWorker([queue], connection=queue.connection)
+        worker.work(burst=True)
+
 # TC-DI-01 - Nuclio crash mid-invocation must not corrupt existing annotations
 class TC_DataIntegrity_RollbackOnFailure(GroupKLambdaTestBase):
     """
