@@ -41,6 +41,17 @@ jobs:
             run --server "${RULES_ARGS[@]}"
       # ------------------------------------
 
+      - name: Debug OPA startup
+        run: |
+          echo "=== OPA container status ==="
+          docker ps -a --filter name=opa
+      
+          echo "=== OPA container logs ==="
+          docker logs opa
+      
+          echo "=== Rules dirs found ==="
+          find cvat/apps -type d -name "rules"
+
       # ---> ADDED: Wait for OPA to be ready before proceeding <---
       - name: Wait for OPA to be ready
         run: |
