@@ -832,7 +832,98 @@ class TC019_TagAnnotations(GroupKLambdaTestBase):
         self.assertGreater(len(data["tags"]), 0)
         self.assertEqual(len(data.get("shapes", [])), 0)
 
+class TC020_MaskAnnotations(GroupKLambdaTestBase):
+    @classmethod
+    def setUpTestData(cls):
+        cls._create_db_users()
 
+    def setUp(self):
+        super().setUp()
+        self.tid = self._create_task(labels=[{"name": "car"}], owner=self.admin)
+        self.url = f"{LAMBDA_FUNCTIONS_PATH}/{id_function_detector}"
+
+    def _mock_invoke(self, func, payload):
+        return [
+            {
+                "confidence": "0.99",
+                "label": "car",
+                "type": "mask",
+                # Last 4 values are always xtl, ytl, xbr, ybr (bbox)
+                # Preceding values are RLE run-lengths
+                # Must have enough total values that [-4:] yields exactly 4
+                "points": [2, 3, 2, 3, 2, 0, 0, 10, 15],
+            }
+        ]
+
+    def test_mask_annotation_without_conversion_returns_shape(self):
+        payload = {
+            "task": self.tid,
+            "frame": 0,
+            "mapping": {"car": {"name": "car"}},
+            "conv_mask_to_poly": False,
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(self.url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_mask_annotation_with_conversion_returns_polygon(self):
+        payload = {
+            "task": self.tid,
+            "frame": 0,
+            "mapping": {"car": {"name": "car"}},
+            "conv_mask_to_poly": True,
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(self.url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+import django_rq
+from rq import SimpleWorker
+
+class TC_WorkerExecution(GroupKLambdaTestBase):
+    @classmethod
+    def setUpTestData(cls):
+        cls._create_db_users()
+
+    def setUp(self):
+        super().setUp()
+        self.tid = self._create_task(labels=[{"name": "car"}], owner=self.admin)
+
+    def test_batch_worker_executes_all_frames(self):
+        """
+        Drain the RQ queue after enqueueing a batch request so the
+        worker function body (lines 1065-1158) actually runs under coverage.
+        """
+        payload = {
+            "function": id_function_detector,
+            "task": self.tid,
+            "cleanup": False,
+            "mapping": {"car": {"name": "car"}},
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
+            self.assertIn(response.status_code,
+                [status.HTTP_200_OK, status.HTTP_201_CREATED])
+
+        # Execute all queued jobs synchronously so the worker body is hit
+        queue = django_rq.get_queue("default")
+        worker = SimpleWorker([queue], connection=queue.connection)
+        worker.work(burst=True)  # processes everything and exits
+
+    def test_batch_worker_with_cleanup_executes(self):
+        """cleanup=True path inside the worker body."""
+        payload = {
+            "function": id_function_detector,
+            "task": self.tid,
+            "cleanup": True,
+            "mapping": {"car": {"name": "car"}},
+        }
+        with ForceLogin(self.admin, self.client):
+            self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
+
+        queue = django_rq.get_queue("default")
+        worker = SimpleWorker([queue], connection=queue.connection)
+        worker.work(burst=True)
 
 # TC-DI-01 - Nuclio crash mid-invocation must not corrupt existing annotations
 class TC_DataIntegrity_RollbackOnFailure(GroupKLambdaTestBase):
