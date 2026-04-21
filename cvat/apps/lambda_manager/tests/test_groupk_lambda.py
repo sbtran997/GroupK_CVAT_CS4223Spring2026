@@ -530,7 +530,7 @@ class TC_DataIntegrity_RollbackOnFailure(GroupKLambdaTestBase):
             label_id = labels_response["results"][0]["id"]
             annotation_payload["shapes"][0]["label_id"] = label_id
             patch_response = self.client.patch(
-                f"/api/tasks/{self.tid}/annotations",
+                f"/api/tasks/{self.tid}/annotations?action=create",
                 data=annotation_payload,
                 format="json",
             )
