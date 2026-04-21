@@ -491,7 +491,175 @@ class TC014_CrossUserAnnotationDenied(GroupKLambdaTestBase):
         self.assertIn(response.status_code,
             [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND],
             "Cross-user batch request must be denied (403 or 404)")
-        
+
+class TC015_FunctionListAndRetrieve(GroupKLambdaTestBase):
+    @classmethod
+    def setUpTestData(cls):
+        cls._create_db_users()
+
+    def test_admin_can_list_functions(self):
+        with ForceLogin(self.admin, self.client):
+            response = self.client.get(LAMBDA_FUNCTIONS_PATH)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(response.json(), list)
+        self.assertGreater(len(response.json()), 0)
+
+    def test_user_can_list_functions(self):
+        with ForceLogin(self.user, self.client):
+            response = self.client.get(LAMBDA_FUNCTIONS_PATH)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_admin_can_retrieve_known_function(self):
+        url = f"{LAMBDA_FUNCTIONS_PATH}/{id_function_detector}"
+        with ForceLogin(self.admin, self.client):
+            response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], id_function_detector)
+
+    def test_retrieve_nonexistent_function_returns_404(self):
+        url = f"{LAMBDA_FUNCTIONS_PATH}/does-not-exist"
+        with ForceLogin(self.admin, self.client):
+            response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+class TC016_BatchRequestLifecycle(GroupKLambdaTestBase):
+    @classmethod
+    def setUpTestData(cls):
+        cls._create_db_users()
+
+    def setUp(self):
+        super().setUp()
+        self.tid = self._create_task(labels=[{"name": "car"}], owner=self.admin)
+
+    def test_admin_can_create_batch_request(self):
+        payload = {
+            "function": id_function_detector,
+            "task": self.tid,
+            "cleanup": False,
+            "mapping": {"car": {"name": "car"}},
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
+        self.assertIn(response.status_code,
+            [status.HTTP_200_OK, status.HTTP_201_CREATED])
+
+    def test_admin_can_list_requests(self):
+        with ForceLogin(self.admin, self.client):
+            response = self.client.get(LAMBDA_REQUESTS_PATH)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(response.json(), list)
+
+    def test_admin_can_retrieve_request(self):
+        payload = {
+            "function": id_function_detector,
+            "task": self.tid,
+            "cleanup": False,
+            "mapping": {"car": {"name": "car"}},
+        }
+        with ForceLogin(self.admin, self.client):
+            create = self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
+            rid = create.json().get("id")
+            response = self.client.get(f"{LAMBDA_REQUESTS_PATH}/{rid}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], rid)
+
+    def test_admin_can_delete_request(self):
+        payload = {
+            "function": id_function_detector,
+            "task": self.tid,
+            "cleanup": False,
+            "mapping": {"car": {"name": "car"}},
+        }
+        with ForceLogin(self.admin, self.client):
+            create = self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
+            rid = create.json().get("id")
+            response = self.client.delete(f"{LAMBDA_REQUESTS_PATH}/{rid}")
+        self.assertIn(response.status_code,
+            [status.HTTP_204_NO_CONTENT, status.HTTP_200_OK])
+
+    def test_batch_request_with_cleanup_true(self):
+        payload = {
+            "function": id_function_detector,
+            "task": self.tid,
+            "cleanup": True,
+            "mapping": {"car": {"name": "car"}},
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
+        self.assertIn(response.status_code,
+            [status.HTTP_200_OK, status.HTTP_201_CREATED])
+
+    def test_batch_request_with_invalid_function_returns_404(self):
+        payload = {
+            "function": "nonexistent-function-id",
+            "task": self.tid,
+            "cleanup": False,
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
+        self.assertIn(response.status_code,
+            [status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND])
+
+    def test_batch_request_with_invalid_task_returns_400_or_404(self):
+        payload = {
+            "function": id_function_detector,
+            "task": 99999,
+            "cleanup": False,
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
+        self.assertIn(response.status_code,
+            [status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND])
+
+    def test_retrieve_nonexistent_request_returns_404(self):
+        with ForceLogin(self.admin, self.client):
+            response = self.client.get(f"{LAMBDA_REQUESTS_PATH}/nonexistent-id")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+class TC017_InteractorFunction(GroupKLambdaTestBase):
+    @classmethod
+    def setUpTestData(cls):
+        cls._create_db_users()
+
+    def setUp(self):
+        super().setUp()
+        self.tid = self._create_task(labels=[{"name": "car"}], owner=self.admin)
+        self.url = f"{LAMBDA_FUNCTIONS_PATH}/{id_function_interactor}"
+
+    def test_interactor_returns_200_with_points(self):
+        payload = {
+            "task": self.tid,
+            "frame": 0,
+            "pos_points": [[10, 10], [20, 20]],
+            "neg_points": [],
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(self.url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_interactor_missing_pos_points_returns_400(self):
+        payload = {
+            "task": self.tid,
+            "frame": 0,
+            "neg_points": [],
+            # pos_points intentionally omitted
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(self.url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_interactor_with_obj_bbox(self):
+        payload = {
+            "task": self.tid,
+            "frame": 0,
+            "pos_points": [[10, 10]],
+            "neg_points": [],
+            "obj_bbox": [0, 0, 50, 50],
+        }
+        with ForceLogin(self.admin, self.client):
+            response = self.client.post(self.url, data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
 # TC-DI-01 - Nuclio crash mid-invocation must not corrupt existing annotations
 class TC_DataIntegrity_RollbackOnFailure(GroupKLambdaTestBase):
     """
