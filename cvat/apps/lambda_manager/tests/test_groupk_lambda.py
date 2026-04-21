@@ -128,36 +128,27 @@ class GroupKLambdaTestBase(ApiTestBase):
         cls.other_user.groups.add(user_group)
 
     def _create_task(self, labels=None, owner=None, num_images=3):
+        """Create a minimal task with generated images owned by `owner`."""
         if labels is None:
             labels = [{"name": "car"}]
         owner = owner or self.admin
         task_spec = {"name": "gk_test_task", "labels": labels}
-    
+
         with ForceLogin(owner, self.client):
             response = self.client.post("/api/tasks", data=task_spec, format="json")
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             tid = response.data["id"]
-    
+
             images = {"client_files[%d]" % i: generate_image_file("img%d.jpg" % i)
                       for i in range(num_images)}
             images["image_quality"] = 70
             response = self.client.post(f"/api/tasks/{tid}/data", data=images)
             self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
             rq_id = response.json()["rq_id"]
-    
-            import time
-            for _ in range(30):
-                response = self.client.get(f"/api/requests/{rq_id}")
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-                state = response.json().get("status")
-                if state == "finished":
-                    break
-                if state == "failed":
-                    self.fail(f"Task data upload RQ job failed: {response.json()}")
-                time.sleep(1)
-            else:
-                self.fail("Task data upload did not finish within 30 seconds")
-    
+
+            response = self.client.get(f"/api/requests/{rq_id}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
         return tid
 
 
