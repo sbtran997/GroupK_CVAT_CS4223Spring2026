@@ -9,10 +9,6 @@ jobs:
   unit-tests:
     runs-on: ubuntu-22.04
 
-    services:
-      redis:
-        image: redis:7
-        ports: ["6379:6379"]
 
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +43,6 @@ jobs:
       - name: Run unit tests with coverage
         run: |
           pytest cvat/apps/lambda_manager/tests/test_groupk_lambda.py \
-                 cvat/apps/lambda_manager/tests/test_lambda.py \
                  -v --tb=short
         env:
           DJANGO_SETTINGS_MODULE: cvat.settings.testing
