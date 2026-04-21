@@ -1,0 +1,35 @@
+name: Lambda Manager — Nightly Integration Tests
+
+on:
+  schedule:
+    - cron: "0 2 * * *"   # 2 AM UTC every night
+  workflow_dispatch:        # also allows manual trigger
+
+jobs:
+  integration-tests:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start CVAT + Nuclio stub via Docker Compose
+        run: |
+          docker compose -f docker-compose.yml \
+                         -f docker-compose.dev.yml \
+                         -f components/serverless/docker-compose.serverless.yml \
+                         up -d --build
+          # Wait for services to be healthy before running tests
+          sleep 30
+
+      - name: Run full integration suite
+        run: |
+          docker compose exec -T cvat_server \
+            python -m pytest \
+              cvat/apps/lambda_manager/tests/ \
+              -v --tb=long -m "integration or not unit"
+        env:
+          CVAT_SERVERLESS: "1"
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
