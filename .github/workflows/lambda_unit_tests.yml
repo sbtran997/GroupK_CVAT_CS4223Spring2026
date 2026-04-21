@@ -81,16 +81,6 @@ jobs:
         env:
           DJANGO_SETTINGS_MODULE: cvat.settings.testing
 
-      # ---> ADDED: Start RQ worker so async image upload jobs are actually processed.
-      #             Without this, _create_task polls forever and every test times out. <---
-      - name: Start RQ Worker
-        run: |
-          python manage.py rqworker default cvat chunks export import webhooks &
-          sleep 3
-        env:
-          DJANGO_SETTINGS_MODULE: cvat.settings.testing
-      # ------------------------------------
-
       - name: Run Bandit static analysis
         run: |
           bandit -r cvat/apps/lambda_manager/views.py \
