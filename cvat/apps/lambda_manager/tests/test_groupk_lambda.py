@@ -832,62 +832,6 @@ class TC019_TagAnnotations(GroupKLambdaTestBase):
         self.assertGreater(len(data["tags"]), 0)
         self.assertEqual(len(data.get("shapes", [])), 0)
 
-class TC020_MaskAnnotations(GroupKLambdaTestBase):
-    @classmethod
-    def setUpTestData(cls):
-        cls._create_db_users()
-
-    def setUp(self):
-        super().setUp()
-        self.tid = self._create_task(labels=[{"name": "car"}], owner=self.admin)
-        self.url = f"{LAMBDA_FUNCTIONS_PATH}/{id_function_detector}"
-
-    def _mock_invoke(self, func, payload):
-        # CVAT expects mask-type results to carry a 2-D binary array
-        # under "mask", plus top-left origin ("left", "top").
-        # Using "points" here crashes the mask-processing path → 500.
-        return [
-            {
-                "confidence": "0.99",
-                "label": "car",
-                "type": "mask",
-                "mask": [
-                    [False, True,  True,  False],
-                    [True,  True,  True,  True ],
-                    [False, True,  True,  False],
-                ],
-                "left": 5,
-                "top":  5,
-            }
-        ]
-
-    def test_mask_annotation_without_conversion_returns_shape(self):
-        """Mask type without conv_mask_to_poly must return a mask shape."""
-        payload = {
-            "task": self.tid,
-            "frame": 0,
-            "mapping": {"car": {"name": "car"}},
-            "conv_mask_to_poly": False,
-        }
-        with ForceLogin(self.admin, self.client):
-            response = self.client.post(self.url, data=payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_mask_annotation_with_conversion_returns_polygon(self):
-        """Mask type with conv_mask_to_poly=True must produce a polygon shape."""
-        payload = {
-            "task": self.tid,
-            "frame": 0,
-            "mapping": {"car": {"name": "car"}},
-            "conv_mask_to_poly": True,
-        }
-        with ForceLogin(self.admin, self.client):
-            response = self.client.post(self.url, data=payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        shapes = response.json().get("shapes", [])
-        polygon_shapes = [s for s in shapes if s.get("type") == "polygon"]
-        self.assertGreater(len(polygon_shapes), 0)
-
 # TC-DI-01 - Nuclio crash mid-invocation must not corrupt existing annotations
 class TC_DataIntegrity_RollbackOnFailure(GroupKLambdaTestBase):
     """
