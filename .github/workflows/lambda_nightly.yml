@@ -96,7 +96,7 @@ jobs:
       # Locust performance test (STP 7.2)
       - name: Run Locust performance test
         run: |
-          locust -f cvat/apps/lambda_manager/tests/performance/locustfile.py \
+          locust -f cvat/apps/lambda_manager/performance/locustfile.py \
                  --host=http://localhost:8080 \
                  --users 50 --spawn-rate 5 \
                  --run-time 90s --headless \
