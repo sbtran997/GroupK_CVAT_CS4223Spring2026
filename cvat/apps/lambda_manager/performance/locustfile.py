@@ -1,16 +1,13 @@
 """
 Performance test: 50 concurrent users, batch annotation on 100-frame tasks.
-Threshold: POST /api/lambda/requests must respond in < 200ms.
-
+Threshold: POST /api/lambda/requests must respond in < 200ms (p95).
 Run with:
     locust -f locustfile.py --host=http://localhost:8080 \
-           --users 50 --spawn-rate 5 --run-time 2m --headless
+           --users 50 --spawn-rate 5 --run-time 90s --headless
 """
-
 from locust import HttpUser, task, between, events
-import json
 
-# Pre-created task ID — set this to a real task ID in your test environment
+# NOTE: Must point to a 100-frame task in the test environment (STP 7.2)
 TEST_TASK_ID = 1
 FUNCTION_ID = "test-openvino-omz-public-yolo-v3-tf"
 
@@ -60,6 +57,18 @@ class LambdaBatchUser(HttpUser):
 @events.quitting.add_listener
 def assert_thresholds(environment, **kwargs):
     """Fail the Locust run if 95th-percentile latency exceeds 200ms."""
-    stats = environment.runner.stats.get("/api/lambda/requests [batch]", "POST")
-    if stats and stats.get_response_time_percentile(0.95) > 200:
+    if not environment.runner:
+        return
+
+    # FIXED: entries is a dict keyed by (name, method) tuple
+    stats = environment.runner.stats.entries.get(("/api/lambda/requests [batch]", "POST"))
+    if stats is None:
+        print("WARNING: No stats collected for batch endpoint — was any traffic generated?")
+        return
+
+    p95 = stats.get_response_time_percentile(0.95)
+    if p95 > 200:
+        print(f"THRESHOLD BREACH: p95 response time {p95:.0f}ms exceeds 200ms limit")
         environment.process_exit_code = 1
+    else:
+        print(f"Threshold OK: p95 response time {p95:.0f}ms")
