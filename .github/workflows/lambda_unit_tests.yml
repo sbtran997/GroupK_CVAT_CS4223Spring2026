@@ -84,7 +84,7 @@ jobs:
 
       # ---> ADDED: Patch views.py with pragma: no cover on untestable lines <---
       - name: Add coverage pragmas to views.py
-        run: python add_no_cover.py
+        run: python python_coverage.py
 
       - name: Run unit tests with coverage
         run: |
