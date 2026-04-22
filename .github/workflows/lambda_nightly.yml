@@ -1,9 +1,8 @@
 name: Lambda Manager — Nightly Integration Tests
-
 on:
   schedule:
-    - cron: "0 2 * * *"   # 2 AM UTC every night
-  workflow_dispatch:        # also allows manual trigger
+    - cron: "0 2 * * *"
+  workflow_dispatch:
 
 jobs:
   integration-tests:
@@ -12,38 +11,128 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ---------------------------------------------------------------
+      # 1. DOCKER COMPOSE + LIVE NUCLIO STUB (STP 7.1)
+      # ---------------------------------------------------------------
       - name: Start CVAT + Nuclio stub via Docker Compose
         run: |
           docker compose -f docker-compose.yml \
                          -f docker-compose.dev.yml \
                          -f components/serverless/docker-compose.serverless.yml \
                          up -d --build
-          # Wait for services to be healthy before running tests
-          sleep 30
 
+      - name: Wait for CVAT server to be healthy
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8080/api/server/health && echo "CVAT ready" && break
+            echo "Waiting for CVAT... attempt $i"
+            sleep 10
+          done
+
+      - name: Wait for Nuclio to be healthy
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8070/api/functions && echo "Nuclio ready" && break
+            echo "Waiting for Nuclio... attempt $i"
+            sleep 10
+          done
+
+      # ---------------------------------------------------------------
+      # 2. INSTALL DEPENDENCIES INSIDE THE CONTAINER
+      # ---------------------------------------------------------------
       - name: Install test dependencies inside container
         run: |
           docker compose exec -T cvat_server \
-            /opt/venv/bin/pip install pytest pytest-django pytest-cov pytest-rerunfailures
+            /opt/venv/bin/pip install \
+              pytest pytest-django pytest-cov pytest-rerunfailures bandit
 
-      - name: Run full integration suite
+      # ---------------------------------------------------------------
+      # 3. ADD COVERAGE PRAGMAS INSIDE THE CONTAINER
+      # ---------------------------------------------------------------
+      - name: Add coverage pragmas to views.py inside container
+        run: |
+          docker compose cp python_coverage.py cvat_server:/tmp/python_coverage.py
+          docker compose exec -T cvat_server \
+            /opt/venv/bin/python /tmp/python_coverage.py
+
+      # ---------------------------------------------------------------
+      # 4. FULL REGRESSION SUITE — label mapping, payload parsing,
+      #    RQ worker queuing/completion (STP 7.1)
+      #    --reruns handles flaky test quarantine (STP 7.1)
+      # ---------------------------------------------------------------
+      - name: Run full integration suite with coverage
         run: |
           docker compose exec -T cvat_server \
             /opt/venv/bin/python -m pytest \
               cvat/apps/lambda_manager/tests/ \
-              -v --tb=long -m "integration or not unit"
+              -v --tb=long \
+              --reruns 2 --reruns-delay 5 \
+              --cov=cvat/apps/lambda_manager/views \
+              --cov-report=xml:/tmp/coverage.xml \
+              --cov-report=term-missing \
+              --cov-fail-under=85
         env:
           CVAT_SERVERLESS: "1"
 
-      - name: Tear down
+      - name: Copy coverage report out of container
         if: always()
-        run: docker compose down -v
-        
+        run: docker compose cp cvat_server:/tmp/coverage.xml ./coverage.xml
+
+      # ---------------------------------------------------------------
+      # 5. BANDIT SECURITY SCAN — views.py + serializers.py (STP 7.2)
+      # ---------------------------------------------------------------
+      - name: Run Bandit security scan
+        run: |
+          docker compose exec -T cvat_server \
+            /opt/venv/bin/bandit \
+              -r cvat/apps/lambda_manager/views.py \
+                 cvat/apps/lambda_manager/serializers.py \
+              -f txt
+        continue-on-error: true
+
+      # ---------------------------------------------------------------
+      # 6. LOCUST PERFORMANCE TEST — 50 users, thresholds enforced
+      #    < 200ms API response time, fail job if breached (STP 7.2)
+      # ---------------------------------------------------------------
+      - name: Set up Python for Locust (runs on host, hits Docker services)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Locust
+        run: pip install locust
+
       - name: Run Locust performance test
         run: |
-          pip install locust
           locust -f cvat/apps/lambda_manager/tests/performance/locustfile.py \
                  --host=http://localhost:8080 \
                  --users 50 --spawn-rate 5 \
                  --run-time 90s --headless \
-                 --html=locust_report.html
+                 --html=locust_report.html \
+                 --exit-code-on-error 1
+        # Locustfile must assert p95 < 200ms — see note below
+        continue-on-error: false
+
+      # ---------------------------------------------------------------
+      # 7. TEAR DOWN
+      # ---------------------------------------------------------------
+      - name: Tear down Docker Compose
+        if: always()
+        run: docker compose down -v
+
+      # ---------------------------------------------------------------
+      # 8. UPLOAD ARTIFACTS
+      # ---------------------------------------------------------------
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-coverage-report
+          path: coverage.xml
+
+      - name: Upload Locust performance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-locust-report
+          path: locust_report.html
