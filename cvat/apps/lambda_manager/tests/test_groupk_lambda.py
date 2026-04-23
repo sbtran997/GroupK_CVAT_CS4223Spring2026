@@ -153,10 +153,10 @@ class GroupKLambdaTestBase(ApiTestBase):
         return tid
 
 
-# TC-002 - Payload serialised correctly; detector response deserialized with correct shape coordinates
-class TC002_DetectorPayloadAndDeserialization(GroupKLambdaTestBase):
+# TC-001 - Payload serialised correctly; detector response deserialized with correct shape coordinates
+class TC001_DetectorPayloadAndDeserialization(GroupKLambdaTestBase):
     """
-    TC-002: Verify that the lambda_manager correctly serializes an image
+    TC-001: Verify that the lambda_manager correctly serializes an image
     payload and deserializes the Nuclio detector response into LabeledData
     shapes with the correct shape type and coordinate values.
 
@@ -231,10 +231,10 @@ class TC002_DetectorPayloadAndDeserialization(GroupKLambdaTestBase):
             response = self.client.post(self.url, data=payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-# TC-003 - Response correctly parsed into CVAT polygon annotation objects
-class TC003_DetectorPolygonParsing(GroupKLambdaTestBase):
+# TC-002 - Response correctly parsed into CVAT polygon annotation objects
+class TC002_DetectorPolygonParsing(GroupKLambdaTestBase):
     """
-    TC-003: Verify that a polygon-type annotation returned by a Nuclio
+    TC-002: Verify that a polygon-type annotation returned by a Nuclio
     detector function is correctly parsed into a CVAT polygon shape object
     (correct type field and point count).
     """
@@ -273,10 +273,10 @@ class TC003_DetectorPolygonParsing(GroupKLambdaTestBase):
         polygon_shapes = [s for s in shapes if s.get("type") == "polygon"]
         self.assertEqual(len(polygon_shapes[0]["points"]), 8)
 
-# TC-006 - Only matched labels produce annotations; unmatched are skipped
-class TC006_LabelFiltering(GroupKLambdaTestBase):
+# TC-003 - Only matched labels produce annotations; unmatched are skipped
+class TC003_LabelFiltering(GroupKLambdaTestBase):
     """
-    TC-006: When the Nuclio response contains labels that are NOT present in
+    TC-003: When the Nuclio response contains labels that are NOT present in
     the task label mapping, those items must be silently dropped — no
     exception, no extra shapes in the output.
 
@@ -314,10 +314,10 @@ class TC006_LabelFiltering(GroupKLambdaTestBase):
             response = self.client.post(self.url, data=payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-# TC-007 - All lambda_manager endpoints return HTTP 401 for unauthenticated
-class TC007_UnauthenticatedRequestsRejected(GroupKLambdaTestBase):
+# TC-004 - All lambda_manager endpoints return HTTP 401 for unauthenticated
+class TC004_UnauthenticatedRequestsRejected(GroupKLambdaTestBase):
     """
-    TC-007: Every lambda_manager REST endpoint must reject requests that carry
+    TC-004: Every lambda_manager REST endpoint must reject requests that carry
     no authentication credentials with HTTP 401 Unauthorized.
     """
 
@@ -357,10 +357,10 @@ class TC007_UnauthenticatedRequestsRejected(GroupKLambdaTestBase):
         response = self.client.post(LAMBDA_REQUESTS_PATH, data=payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-# TC-011 - Frame sequence produces track annotations with correct frame ranges
-class TC011_TrackerFrameAnnotations(GroupKLambdaTestBase):
+# TC-005 - Frame sequence produces track annotations with correct frame ranges
+class TC005_TrackerFrameAnnotations(GroupKLambdaTestBase):
     """
-    TC-011: An online tracker call must return 'shapes' and 'states' keys.
+    TC-005: An online tracker call must return 'shapes' and 'states' keys.
     The returned shape coordinates must match the mock tracker output
     (rectangle [12.0, 34.0, 56.0, 78.0]).
     """
@@ -445,10 +445,10 @@ class TC011_TrackerFrameAnnotations(GroupKLambdaTestBase):
             response = self.client.post(self.url, data=payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-# TC-012 - Single-frame interactive call returns shapes without launching RQ
-class TC012_InteractiveFunctionNoRQJob(GroupKLambdaTestBase):
+# TC-006 - Single-frame interactive call returns shapes without launching RQ
+class TC006_InteractiveFunctionNoRQJob(GroupKLambdaTestBase):
     """
-    TC-012: An online (interactive) function call via
+    TC-006: An online (interactive) function call via
     POST /api/lambda/functions/<id> must return shape data directly and must
     NOT enqueue an RQ job (i.e., no entry in /api/lambda/requests).
     """
@@ -490,10 +490,10 @@ class TC012_InteractiveFunctionNoRQJob(GroupKLambdaTestBase):
         self.assertEqual(count_before, count_after,
             "Interactive call must not create an RQ job in /api/lambda/requests")
 
-# TC-014 - Authenticated user cannot trigger annotation job on another user's task
-class TC014_CrossUserAnnotationDenied(GroupKLambdaTestBase):
+# TC-007 - Authenticated user cannot trigger annotation job on another user's task
+class TC007_CrossUserAnnotationDenied(GroupKLambdaTestBase):
     """
-    TC-014: An authenticated user must receive HTTP 403 Forbidden when they
+    TC-007: An authenticated user must receive HTTP 403 Forbidden when they
     attempt to invoke a lambda function on a task they do not own and are not
     assigned to.
     """
@@ -541,7 +541,7 @@ class TC014_CrossUserAnnotationDenied(GroupKLambdaTestBase):
             [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND],
             "Cross-user batch request must be denied (403 or 404)")
 
-class TC015_FunctionListAndRetrieve(GroupKLambdaTestBase):
+class TC008_FunctionListAndRetrieve(GroupKLambdaTestBase):
     @classmethod
     def setUpTestData(cls):
         cls._create_db_users()
@@ -571,7 +571,7 @@ class TC015_FunctionListAndRetrieve(GroupKLambdaTestBase):
             response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-class TC016_BatchRequestLifecycle(GroupKLambdaTestBase):
+class TC009_BatchRequestLifecycle(GroupKLambdaTestBase):
     @classmethod
     def setUpTestData(cls):
         cls._create_db_users()
@@ -706,7 +706,7 @@ class TC016_BatchRequestLifecycle(GroupKLambdaTestBase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertGreater(len(response.json()), 0)
 
-class TC017_InteractorFunction(GroupKLambdaTestBase):
+class TC010_InteractorFunction(GroupKLambdaTestBase):
     @classmethod
     def setUpTestData(cls):
         cls._create_db_users()
@@ -750,7 +750,7 @@ class TC017_InteractorFunction(GroupKLambdaTestBase):
             response = self.client.post(self.url, data=payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-class TC018_ErrorHandling(GroupKLambdaTestBase):
+class TC011_ErrorHandling(GroupKLambdaTestBase):
     @classmethod
     def setUpTestData(cls):
         cls._create_db_users()
@@ -801,7 +801,7 @@ class TC018_ErrorHandling(GroupKLambdaTestBase):
             response = self.client.post(url, data=payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-class TC019_TagAnnotations(GroupKLambdaTestBase):
+class TC012_TagAnnotations(GroupKLambdaTestBase):
     @classmethod
     def setUpTestData(cls):
         cls._create_db_users()
@@ -832,7 +832,7 @@ class TC019_TagAnnotations(GroupKLambdaTestBase):
         self.assertGreater(len(data["tags"]), 0)
         self.assertEqual(len(data.get("shapes", [])), 0)
 
-class TC020_MaskAnnotations(GroupKLambdaTestBase):
+class TC013_MaskAnnotations(GroupKLambdaTestBase):
     @classmethod
     def setUpTestData(cls):
         cls._create_db_users()
